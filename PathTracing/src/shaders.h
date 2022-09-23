@@ -82,11 +82,15 @@ const std::string vPrev =
 const std::string fPrev =
 {
 	"#version 410\n"
-	
+
 	"uniform vec3 eyePos;\n"
 	"uniform vec3 color;\n"
 	"uniform sampler2D normalTex;\n"
 	"uniform int normalMap = 0;\n"
+
+	"uniform int pass = 0;\n"
+	"uniform int objectId = 0;\n"
+	"uniform int elementId = 0;\n"
 
 	"in vec3 posW;\n"
 	"in vec3 normalW;\n"
@@ -97,20 +101,26 @@ const std::string fPrev =
 
 	"void main()\n"
 	"{\n"
-	"	vec3 l = normalize(eyePos - posW);\n"
-	"	vec3 n = normalW;\n"
-	"	if (dot(n, l) < 0.0f)\n"
-	"		n = -n;\n"
-	"	if (normalMap == 1)\n"
+	"	if (pass == 0)\n"
 	"	{\n"
-	"		vec3 bitangentW = normalize(cross(normalW, tangentW));\n"
-	"		mat3 TBN = mat3(tangentW, bitangentW, normalW);\n"
-	"		vec3 nt = normalize(texture2D(normalTex, texCoord).xyz * 2.0 - 1.0);\n"
-	"		n = TBN * nt;\n"
-	"	}\n"
-	"	vec3 shade = color * max(dot(n, l), 0.0);\n"
+	"		vec3 l = normalize(eyePos - posW);\n"
+	"		vec3 n = normalW;\n"
+	"		if (dot(n, l) < 0.0)\n"
+	"			n = -n;\n"
+	"		if (normalMap == 1)\n"
+	"		{\n"
+	"			vec3 bitangentW = normalize(cross(normalW, tangentW));\n"
+	"			mat3 TBN = mat3(tangentW, bitangentW, normalW);\n"
+	"			vec3 nt = normalize(texture2D(normalTex, texCoord).xyz * 2.0 - 1.0);\n"
+	"			n = TBN * nt;\n"
+	"		}\n"
+	"		vec3 shade = color * max(dot(n, l), 0.0);\n"
 
-	"	fragcolor = vec4(shade, 1.0);\n"
+	"		fragcolor = vec4(shade, 1.0);\n"
+	"	}\n"
+
+	"	else if (pass == 1)\n"
+	"		fragcolor = vec4(objectId, elementId, 0.0, 1.0);\n"
 	"}\n"
 };
 
