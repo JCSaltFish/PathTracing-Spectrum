@@ -3188,7 +3188,7 @@ void DrawGui()
 /* ----- GLFW FUNCTIONS ------ */
 void Display()
 {
-	int wViewport = wWindow - rightBarWidth;
+	int wViewport = wWindow - leftBarWidth - rightBarWidth;
 	int hViewport = hWindow - menuHeight - toolbarHeight - statusBarHeight;
 	if (autoRes && canLoad)
 	{
