@@ -496,7 +496,7 @@ Wave PathTracer::Trace(glm::vec3 ro, glm::vec3 rd, int depth, bool inside)
 			if (reflectivity.size() < mWaveLengths.size())
 				reflectivity = waveZero;
 
-			return mat.emissivity + Trace(p, reflectDir, depth, inside) * mat.reflectivity;
+			return emissivity + Trace(p, reflectDir, depth, inside) * reflectivity;
 		}
 	}
 
