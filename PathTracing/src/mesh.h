@@ -81,7 +81,7 @@ public:
 	BVHNode(const Triangle& t);
 	~BVHNode();
 	BVHNode* Construct(std::vector<Triangle>& triangles);
-	bool Hit(const glm::vec3& ro, const glm::vec3& rd, Triangle& triangleOut, float& distOut);
+	const bool Hit(const glm::vec3& ro, const glm::vec3& rd, Triangle& triangleOut, float& distOut);
 };
 
 #endif

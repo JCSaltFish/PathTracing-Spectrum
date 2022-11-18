@@ -236,7 +236,7 @@ const bool BVHNode::IsInside(const glm::vec3& p, const glm::vec3& a, const glm::
     return (IsSameSide(p, a, b, c) && IsSameSide(p, b, a, c) && IsSameSide(p, c, a, b));
 }
 
-bool BVHNode::Hit(const glm::vec3& ro, const glm::vec3& rd, Triangle& triangleOut, float& distOut)
+const bool BVHNode::Hit(const glm::vec3& ro, const glm::vec3& rd, Triangle& triangleOut, float& distOut)
 {
 	if (mLeft && mRight)
 	{
