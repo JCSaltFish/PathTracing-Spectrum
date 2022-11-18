@@ -48,7 +48,7 @@ namespace PathTracerLoader
 			name = "";
 		}
 
-		Element(std::string name)
+		Element(const std::string& name)
 		{
 			this->name = name;
 		}
@@ -64,7 +64,7 @@ namespace PathTracerLoader
 			name = "";
 		}
 
-		Object(std::string name)
+		Object(const std::string& name)
 		{
 			this->name = name;
 		}
@@ -123,43 +123,43 @@ public:
 
 private:
 	/* ----- SPECTRUM FUNCTIONS ----- */
-	float BBP(float temperature, int waveId);
-	Wave GetReflectivity(int materialId);
-	Wave GetEmissivity(int materialId, float temperature);
+	const float BBP(float temperature, int waveId) const;
+	const Wave GetReflectivity(int materialId) const;
+	const Wave GetEmissivity(int materialId, float temperature) const;
 	/* ----- SPECTRUM FUNCTIONS ----- */
 
-	float Rand();
-	glm::vec2 GetUV(glm::vec3& p, Triangle& t);
-	glm::vec3 GetSmoothNormal(glm::vec3& p, Triangle& t);
-	Wave Trace(glm::vec3 ro, glm::vec3 rd, int depth = 0, bool inside = false);
+	const float Rand();
+	const glm::vec2 GetUV(const glm::vec3& p, const Triangle& t) const;
+	const glm::vec3 GetSmoothNormal(const glm::vec3& p, const Triangle& t) const;
+	const Wave Trace(const glm::vec3& ro, const glm::vec3& rd, int depth = 0, bool inside = false);
 
 public:
-	void LoadObject(std::string file, glm::mat4 model);
-	void SetNormalTextureForElement(int objId, int elementId, std::string file);
+	void LoadObject(const std::string& file, const glm::mat4& model);
+	void SetNormalTextureForElement(int objId, int elementId, const std::string& file);
 	void SetMaterial(int objId, int elementId, Material& material);
 	void BuildBVH();
 	void ResetImage();
 	void ClearScene();
 
-	int GetSamples();
-	int GetTriangleCount();
-	int GetTraceDepth();
+	const int GetSamples() const;
+	const int GetTriangleCount() const;
+	const int GetTraceDepth() const;
 	void SetTraceDepth(int depth);
 	void SetOutImage(GLubyte* out);
-	void SetResolution(glm::ivec2 res);
-	glm::ivec2 GetResolution();
-	std::vector<PathTracerLoader::Object> GetLoadedObjects();
+	void SetResolution(const glm::ivec2& res);
+	const glm::ivec2 GetResolution() const;
+	std::vector<PathTracerLoader::Object> GetLoadedObjects() const;
 
 	/* ----- SPECTRUM FUNCTIONS ----- */
 	void InitializeSpectrumMaterials();
 	void SetOutSpectrumResult(Wave* res);
-	void SetWaveLengths(std::vector<float>& waves);
-	void SetSpectrumMaterials(std::vector<SpectrumMaterial>& materials);
+	void SetWaveLengths(const std::vector<float>& waves);
+	void SetSpectrumMaterials(const std::vector<SpectrumMaterial>& materials);
 	void SetSky(int materialId, float temperature);
-	void SetTemperatureTextureForElement(int objId, int elementId, std::string file);
+	void SetTemperatureTextureForElement(int objId, int elementId, const std::string& file);
 	/* ----- SPECTRUM FUNCTIONS ----- */
 
-	void SetCamera(glm::vec3 pos, glm::vec3 dir, glm::vec3 up);
+	void SetCamera(const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& up);
 	void SetProjection(float f, float fovy);
 	void RenderFrame();
 	void Exit();

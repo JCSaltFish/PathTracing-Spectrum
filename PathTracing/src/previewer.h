@@ -40,7 +40,7 @@ namespace PreviewerLoader
         GLuint temperatureTexId;
         std::string temperatureTexFile;
 
-        Element(std::string name)
+        Element(const std::string& name)
         {
             this->name = name;
             vbo = -1;
@@ -72,7 +72,7 @@ namespace PreviewerLoader
         glm::vec3 scale;
 
     public:
-        Object(std::string name)
+        Object(const std::string& name)
         {
             this->name = name;
             M = glm::mat4(1.0f);
@@ -103,30 +103,30 @@ namespace PreviewerLoader
         }
 
     public:
-        glm::vec3 GetLocation()
+        const glm::vec3 GetLocation() const
         {
             return location;
         }
-        glm::vec3 GetRotation()
+        const glm::vec3 GetRotation() const
         {
             return rotation;
         }
-        glm::vec3 GetScale()
+        const glm::vec3 GetScale() const
         {
             return scale;
         }
 
-        void SetLocation(glm::vec3 v)
+        void SetLocation(const glm::vec3& v)
         {
             location = v;
             UpdateMatrix();
         }
-        void SetRotation(glm::vec3 v)
+        void SetRotation(const glm::vec3& v)
         {
             rotation = v;
             UpdateMatrix();
         }
-        void SetScale(glm::vec3 v)
+        void SetScale(const glm::vec3& v)
         {
             scale = v;
             UpdateMatrix();
@@ -160,7 +160,7 @@ private:
         float T[3], float v0[3], float v1[3], float v2[3], float tc0[3], float tc1[3], float tc2[3]
     );
 
-    bool HasSmoothingGroup(const tinyobj::shape_t& shape);
+    const bool HasSmoothingGroup(const tinyobj::shape_t& shape);
 
     void ComputeSmoothingNormals
     (
@@ -191,54 +191,54 @@ private:
         tinyobj::attrib_t& outattrib
     );
 
-    GLuint LoadTexture(std::string file);
+    GLuint LoadTexture(const std::string& file);
 
     void FreeObject(int objId);
 
 public:
-    bool LoadObject(std::string filename, int id = -1);
-    std::vector<PreviewerLoader::Object> GetLoadedObjects();
-    void SetNormalTextureForElement(int objId, int elementId, std::string file);
-    void SetMaterial(int objId, int elementId, Material& m);
+    const bool LoadObject(const std::string& filename, int id = -1);
+    std::vector<PreviewerLoader::Object> GetLoadedObjects() const;
+    void SetNormalTextureForElement(int objId, int elementId, const std::string& file);
+    void SetMaterial(int objId, int elementId, const Material& m);
 
-    void SetTemperatureTextureForElement(int objId, int elementId, std::string file);
+    void SetTemperatureTextureForElement(int objId, int elementId, const std::string& file);
 
-    void SetLocation(int objId, glm::vec3 location);
-    void SetRotation(int objId, glm::vec3 rotation);
-    void SetScale(int objId, glm::vec3 scale);
+    void SetLocation(int objId, const glm::vec3& location);
+    void SetRotation(int objId, const glm::vec3& rotation);
+    void SetScale(int objId, const glm::vec3& scale);
 
     void SendObjectsToPathTracer(PathTracer* pPathTracer);
 
-    void SetCamera(glm::vec3 pos, glm::vec3 dir, glm::vec3 up);
+    void SetCamera(const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& up);
     void SetProjection(float f, float fovy);
 
-    glm::vec3 CameraPosition();
-    glm::vec3 CameraDirection();
-    glm::vec3 CameraUp();
-    float CameraFovy();
-    float CameraFocal();
-    glm::vec3 CameraRotation();
-    void RotateCamera(glm::vec3 rotation);
+    const glm::vec3 CameraPosition() const;
+    const glm::vec3 CameraDirection() const;
+    const glm::vec3 CameraUp() const;
+    const float CameraFovy() const;
+    const float CameraFocal() const;
+    const glm::vec3 CameraRotation() const;
+    void RotateCamera(const glm::vec3& rotation);
 
-    glm::vec3 PreviewCameraPosition();
-    glm::vec3 PreviewCameraDirection();
-    glm::vec3 PreviewCameraUp();
+    const glm::vec3 PreviewCameraPosition() const;
+    const glm::vec3 PreviewCameraDirection() const;
+    const glm::vec3 PreviewCameraUp() const;
 
     void SetPathTracerCamera(PathTracer* pPathTracer);
 
-    int GetTriangleCount();
+    const int GetTriangleCount() const;
 
     void Highlight(int objId, bool highlight);
     void Highlight(int objId, int elementId, bool highlight);
 
     void SelectObject(int objId, bool select);
-    int GetNumSelectedObjects();
+    const int GetNumSelectedObjects() const;
 
     void DeleteSelectedObjects();
-    void ReplaceSelectedObjectsWith(std::string file);
+    void ReplaceSelectedObjectsWith(const std::string& file);
 
-    void SetName(int objId, std::string name);
-    void SetName(int objId, int elementId, std::string name);
+    void SetName(int objId, const std::string& name);
+    void SetName(int objId, int elementId, const std::string& name);
     void SetScaleLocked(int objId, bool locked);
 
     void ClearScene();
