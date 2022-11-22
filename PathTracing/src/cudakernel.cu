@@ -4,7 +4,7 @@
 
 #include "cudakernel.cuh"
 
-__constant__ curandState_t* state;
+__constant__ curandState_t* state = 0;
 
 __constant__ float PI;
 __constant__ float EPSILON = 0.001f;
@@ -464,5 +464,6 @@ void CUDAReset()
 void CUDAFinish()
 {
 	CUDAReset();
-	gpuErrchk(cudaFree(state));
+	if (state)
+		gpuErrchk(cudaFree(state));
 }
