@@ -8,8 +8,12 @@
 
 #include "pathtracer.h"
 
+#include "cudakernel.cuh"
+
 PathTracer::PathTracer() : mRng(std::random_device()())
 {
+	mBvh = 0;
+
 	mOutImg = 0;
 	mTotalImg = 0;
 	mMaxDepth = 3;
@@ -23,8 +27,10 @@ PathTracer::PathTracer() : mRng(std::random_device()())
 	mNeedReset = false;
 	mExit = false;
 
-	mOutSpectrumResult = 0;
-	mTotalSpectrumResult = 0;
+	mWavelength = 0.0f;
+	mWaveSky = 0.0f;
+	//mOutSpectrumResult = 0;
+	//mTotalSpectrumResult = 0;
 }
 
 PathTracer::~PathTracer()
@@ -38,8 +44,8 @@ PathTracer::~PathTracer()
 	for (auto texture : mLoadedTextures)
 		delete texture;
 
-	if (mTotalSpectrumResult)
-		delete[] mTotalSpectrumResult;
+	//if (mTotalSpectrumResult)
+		//delete[] mTotalSpectrumResult;
 }
 
 void PathTracer::LoadObject(const std::string& file, const glm::mat4& model)
@@ -213,9 +219,11 @@ void PathTracer::ClearScene()
 	if (mTotalImg)
 		delete[] mTotalImg;
 	mTotalImg = 0;
-	if (mTotalSpectrumResult)
-		delete[] mTotalSpectrumResult;
-	mTotalSpectrumResult = 0;
+	//if (mTotalSpectrumResult)
+		//delete[] mTotalSpectrumResult;
+	//mTotalSpectrumResult = 0;
+
+	CUDAReset();
 }
 
 void PathTracer::SetOutImage(GLubyte* out)
@@ -223,9 +231,9 @@ void PathTracer::SetOutImage(GLubyte* out)
 	mOutImg = out;
 }
 
-void PathTracer::SetWaveLengths(const std::vector<float>& waves)
+void PathTracer::SetWaveLength(const float& wavelength)
 {
-	mWaveLengths = waves;
+	mWavelength = wavelength;
 }
 
 void PathTracer::SetResolution(const glm::ivec2& res)
@@ -233,9 +241,9 @@ void PathTracer::SetResolution(const glm::ivec2& res)
 	mResolution = res;
 	mTotalImg = new float[res.x * res.y * 3];
 
-	mTotalSpectrumResult = new Wave[res.x * res.y];
-	for (int i = 0; i < res.x * res.y; i++)
-		mTotalSpectrumResult[i].Initialize(mWaveLengths.size());
+	//mTotalSpectrumResult = new Wave[res.x * res.y];
+	//for (int i = 0; i < res.x * res.y; i++)
+		//mTotalSpectrumResult[i].Initialize(mWaveLengths.size());
 }
 
 std::vector<PathTracerLoader::Object> PathTracer::GetLoadedObjects() const
@@ -254,24 +262,16 @@ void PathTracer::InitializeSpectrumMaterials()
 	{
 		for (auto& elements : obj.elements)
 		{
-			if (elements.material.spectrumMatId == -1)
-			{
-				elements.material.reflectivity.Initialize(mWaveLengths.size());
-				elements.material.emissivity.Initialize(mWaveLengths.size());
-			}
-			else
-			{
-				elements.material.reflectivity = GetReflectivity(elements.material.spectrumMatId);
-				elements.material.emissivity = GetEmissivity(elements.material.spectrumMatId,
-					elements.material.temperature);
-			}
+			elements.material.reflectivity = GetReflectivity(elements.material.spectrumMatId);
+			elements.material.emissivity = GetEmissivity(elements.material.spectrumMatId,
+				elements.material.temperature);
 		}
 	}
 }
 
 void PathTracer::SetSky(int materialId, float temperature)
 {
-	if (materialId == -1 || materialId >= mSpectrumMaterials.size())
+	/*if (materialId == -1 || materialId >= mSpectrumMaterials.size())
 	{
 		mWaveSky.Initialize(mWaveLengths.size());
 		return;
@@ -280,7 +280,10 @@ void PathTracer::SetSky(int materialId, float temperature)
 	Wave waveSky(mWaveLengths.size());
 	for (int i = 0; i < waveSky.size(); i++)
 		waveSky[i] = BBP(temperature + 273.15f, i) * mSpectrumMaterials[materialId].emissivity[i];
-	mWaveSky = waveSky;
+	mWaveSky = waveSky;*/
+	if (materialId == -1 || materialId >= mSpectrumMaterials.size())
+		return;
+	mWaveSky = BBP(temperature + 273.15f, mWavelength) * mSpectrumMaterials[materialId].emissivity;
 }
 
 const glm::ivec2 PathTracer::GetResolution() const
@@ -303,7 +306,7 @@ void PathTracer::SetTraceDepth(int depth)
 	mMaxDepth = depth;
 }
 
-void PathTracer::SetOutSpectrumResult(Wave* result)
+void PathTracer::SetOutSpectrumResult(float* result)
 {
 	mOutSpectrumResult = result;
 }
@@ -332,31 +335,31 @@ const int PathTracer::GetSamples() const
 	return mSamples;
 }
 
-const float PathTracer::BBP(float temperature, int waveId) const
+const float PathTracer::BBP(float temperature, float wavelength) const
 {
 	float c = 299792458.0f;
 	float k = 138064852e-31;
 	float h = 2.0f * M_PI * 105457180e-42;
 
-	float v = mWaveLengths[waveId];
+	float v = wavelength;
 	float T = temperature;
 	return 2e8 * (h * c * c * v * v * v) / (exp(100.0f * h * c * v / k / T) - 1.0f);
 }
 
-const Wave PathTracer::GetReflectivity(int materialId) const
+const float PathTracer::GetReflectivity(int materialId) const
 {
-	Wave refl(mWaveLengths.size());
+	/*Wave refl(mWaveLengths.size());
 	for (int i = 0; i < mWaveLengths.size(); i++)
-		refl[i] = 1.0f - mSpectrumMaterials[materialId].emissivity[i];
-	return refl;
+		refl[i] = 1.0f - mSpectrumMaterials[materialId].emissivity[i];*/
+	return 1.0f - mSpectrumMaterials[materialId].emissivity;
 }
 
-const Wave PathTracer::GetEmissivity(int materialId, float temperature) const
+const float PathTracer::GetEmissivity(int materialId, float temperature) const
 {
-	Wave emis(mWaveLengths.size());
+	/*Wave emis(mWaveLengths.size());
 	for (int i = 0; i < mWaveLengths.size(); i++)
-		emis[i] = BBP(temperature + 273.15f, i) * mSpectrumMaterials[materialId].emissivity[i];
-	return emis;
+		emis[i] = BBP(temperature + 273.15f, i) * mSpectrumMaterials[materialId].emissivity[i];*/
+	return BBP(temperature + 273.15f, mWavelength) * mSpectrumMaterials[materialId].emissivity;
 }
 
 const float PathTracer::Rand()
@@ -395,205 +398,221 @@ const glm::vec3 PathTracer::GetSmoothNormal(const glm::vec3& p, const Triangle& 
 	return glm::normalize(n);
 }
 
-const Wave PathTracer::Trace(const glm::vec3& ro, const glm::vec3& rd, int depth, bool inside)
+//const Wave PathTracer::Trace(const glm::vec3& ro, const glm::vec3& rd, int depth, bool inside)
+//{
+//	const Wave waveZero(mWaveLengths.size());
+//
+//	float d = 0.0f;
+//	Triangle t;
+//	if (mBvh->Hit(ro, rd, t, d))
+//	{
+//		Material& mat = mLoadedObjects[t.objectId].elements[t.elementId].material;
+//		glm::vec3 p = ro + rd * d;
+//		glm::vec2 uv = GetUV(p, t);
+//		glm::vec3 n = t.normal;
+//		if (t.smoothing)
+//			n = GetSmoothNormal(p, t);
+//		if (glm::dot(n, rd) > 0.0f)
+//			n = -n;
+//		if (mat.normalTexId != -1)
+//		{
+//			glm::mat3 TBN = glm::mat3(t.tangent, t.bitangent, n);
+//			glm::vec3 nt = glm::vec3(mLoadedTextures[mat.normalTexId]->tex2D(uv)) * 2.0f - 1.0f;
+//			if (nt.z < 0.0f)
+//				nt = glm::vec3(nt.x, nt.y, 0.0f);
+//			nt = glm::normalize(nt);
+//			n = glm::normalize(TBN * nt);
+//		}
+//		p += n * EPS;
+//
+//		if (depth < mMaxDepth * 2)
+//		{
+//			depth++;
+//			// Russian Roulette Path Termination
+//			float prob = glm::min(0.95f, glm::max(glm::max(mat.baseColor.x, mat.baseColor.y), mat.baseColor.z));
+//			if (depth >= mMaxDepth)
+//			{
+//				if (glm::abs(Rand()) > prob)
+//					return mat.emissivity;
+//			}
+//
+//			glm::vec3 r = glm::reflect(rd, n);
+//			glm::vec3 reflectDir;
+//			if (mat.type == MaterialType::SPECULAR)
+//				reflectDir = r;
+//			else if (mat.type == MaterialType::DIFFUSE)
+//			{
+//				// Monte Carlo Integration
+//				glm::vec3 u = glm::abs(n.x) < 1.0f - EPS ? glm::cross(glm::vec3(1.0f, 0.0f, 0.0f), n) : glm::cross(glm::vec3(1.0f), n);
+//				u = glm::normalize(u);
+//				glm::vec3 v = glm::normalize(glm::cross(u, n));
+//				float w = Rand(), theta = Rand();
+//				// uniformly sampling on hemisphere
+//				reflectDir = w * cosf(2.0f * M_PI * theta) * u + w * sinf(2.0f * M_PI * theta) * v + glm::sqrt(1.0f - w * w) * n;
+//				reflectDir = glm::normalize(reflectDir);
+//			}
+//			else if (mat.type == MaterialType::GLOSSY)
+//			{
+//				// Monte Carlo Integration
+//				glm::vec3 u = glm::abs(n.x) < 1 - FLT_EPSILON ? glm::cross(glm::vec3(1, 0, 0), r) : glm::cross(glm::vec3(1), r);
+//				u = glm::normalize(u);
+//				glm::vec3 v = glm::cross(u, r);
+//				float w = Rand() * mat.roughness, theta = Rand();
+//				// wighted sampling on hemisphere
+//				reflectDir = w * cosf(2 * M_PI * theta) * u + w * sinf(2 * M_PI * theta) * v + glm::sqrt(1 - w * w) * r;
+//			}
+//			else if (mat.type == MaterialType::GLASS)
+//			{
+//				float nc = 1.0f, ng = 1.5f;
+//				// Snells law
+//				float eta = inside ? ng / nc : nc / ng;
+//				float r0 = glm::pow((nc - ng) / (nc + ng), 2.0f);
+//				float c = glm::abs(glm::dot(rd, n));
+//				float k = 1.0f - eta * eta * (1.0f - c * c);
+//				if (k < 0.0f)
+//					reflectDir = r;
+//				else
+//				{
+//					// Shilick's approximation of Fresnel's equation
+//					float re = r0 + (1.0f - r0) * glm::pow(1.0f - c, 2.0f);
+//					if (glm::abs(Rand()) < re)
+//						reflectDir = r;
+//					else
+//					{
+//						reflectDir = glm::normalize(eta * rd - (eta * glm::dot(n, rd) + glm::sqrt(k)) * n);
+//						p -= n * EPS * 2.0f;
+//						inside = !inside;
+//					}
+//				}
+//			}
+//
+//			Wave emissivity = mat.emissivity;
+//			Wave reflectivity = mat.reflectivity;
+//			if (mat.temperatureTexId != -1)
+//			{
+//				// TODO map temperature value here
+//				float temperature = mLoadedTextures[mat.normalTexId]->tex2D(uv).r;
+//				emissivity = GetEmissivity(mat.spectrumMatId, temperature);
+//			}
+//			if (emissivity.size() < mWaveLengths.size())
+//				emissivity = waveZero;
+//			if (reflectivity.size() < mWaveLengths.size())
+//				reflectivity = waveZero;
+//
+//			return emissivity + Trace(p, reflectDir, depth, inside) * reflectivity;
+//		}
+//	}
+//
+//	if (mWaveSky.size() < mWaveLengths.size())
+//		return waveZero;
+//	return mWaveSky;
+//}
+
+void PathTracer::CUDAInit()
 {
-	const Wave waveZero(mWaveLengths.size());
-
-	float d = 0.0f;
-	Triangle t;
-	if (mBvh->Hit(ro, rd, t, d))
-	{
-		Material& mat = mLoadedObjects[t.objectId].elements[t.elementId].material;
-		glm::vec3 p = ro + rd * d;
-		glm::vec2 uv = GetUV(p, t);
-		glm::vec3 n = t.normal;
-		if (t.smoothing)
-			n = GetSmoothNormal(p, t);
-		if (glm::dot(n, rd) > 0.0f)
-			n = -n;
-		if (mat.normalTexId != -1)
-		{
-			glm::mat3 TBN = glm::mat3(t.tangent, t.bitangent, n);
-			glm::vec3 nt = glm::vec3(mLoadedTextures[mat.normalTexId]->tex2D(uv)) * 2.0f - 1.0f;
-			if (nt.z < 0.0f)
-				nt = glm::vec3(nt.x, nt.y, 0.0f);
-			nt = glm::normalize(nt);
-			n = glm::normalize(TBN * nt);
-		}
-		p += n * EPS;
-
-		if (depth < mMaxDepth * 2)
-		{
-			depth++;
-			// Russian Roulette Path Termination
-			float prob = glm::min(0.95f, glm::max(glm::max(mat.baseColor.x, mat.baseColor.y), mat.baseColor.z));
-			if (depth >= mMaxDepth)
-			{
-				if (glm::abs(Rand()) > prob)
-					return mat.emissivity;
-			}
-
-			glm::vec3 r = glm::reflect(rd, n);
-			glm::vec3 reflectDir;
-			if (mat.type == MaterialType::SPECULAR)
-				reflectDir = r;
-			else if (mat.type == MaterialType::DIFFUSE)
-			{
-				// Monte Carlo Integration
-				glm::vec3 u = glm::abs(n.x) < 1.0f - EPS ? glm::cross(glm::vec3(1.0f, 0.0f, 0.0f), n) : glm::cross(glm::vec3(1.0f), n);
-				u = glm::normalize(u);
-				glm::vec3 v = glm::normalize(glm::cross(u, n));
-				float w = Rand(), theta = Rand();
-				// uniformly sampling on hemisphere
-				reflectDir = w * cosf(2.0f * M_PI * theta) * u + w * sinf(2.0f * M_PI * theta) * v + glm::sqrt(1.0f - w * w) * n;
-				reflectDir = glm::normalize(reflectDir);
-			}
-			else if (mat.type == MaterialType::GLOSSY)
-			{
-				// Monte Carlo Integration
-				glm::vec3 u = glm::abs(n.x) < 1 - FLT_EPSILON ? glm::cross(glm::vec3(1, 0, 0), r) : glm::cross(glm::vec3(1), r);
-				u = glm::normalize(u);
-				glm::vec3 v = glm::cross(u, r);
-				float w = Rand() * mat.roughness, theta = Rand();
-				// wighted sampling on hemisphere
-				reflectDir = w * cosf(2 * M_PI * theta) * u + w * sinf(2 * M_PI * theta) * v + glm::sqrt(1 - w * w) * r;
-			}
-			else if (mat.type == MaterialType::GLASS)
-			{
-				float nc = 1.0f, ng = 1.5f;
-				// Snells law
-				float eta = inside ? ng / nc : nc / ng;
-				float r0 = glm::pow((nc - ng) / (nc + ng), 2.0f);
-				float c = glm::abs(glm::dot(rd, n));
-				float k = 1.0f - eta * eta * (1.0f - c * c);
-				if (k < 0.0f)
-					reflectDir = r;
-				else
-				{
-					// Shilick's approximation of Fresnel's equation
-					float re = r0 + (1.0f - r0) * glm::pow(1.0f - c, 2.0f);
-					if (glm::abs(Rand()) < re)
-						reflectDir = r;
-					else
-					{
-						reflectDir = glm::normalize(eta * rd - (eta * glm::dot(n, rd) + glm::sqrt(k)) * n);
-						p -= n * EPS * 2.0f;
-						inside = !inside;
-					}
-				}
-			}
-
-			Wave emissivity = mat.emissivity;
-			Wave reflectivity = mat.reflectivity;
-			if (mat.temperatureTexId != -1)
-			{
-				// TODO map temperature value here
-				float temperature = mLoadedTextures[mat.normalTexId]->tex2D(uv).r;
-				emissivity = GetEmissivity(mat.spectrumMatId, temperature);
-			}
-			if (emissivity.size() < mWaveLengths.size())
-				emissivity = waveZero;
-			if (reflectivity.size() < mWaveLengths.size())
-				reflectivity = waveZero;
-
-			return emissivity + Trace(p, reflectDir, depth, inside) * reflectivity;
-		}
-	}
-
-	if (mWaveSky.size() < mWaveLengths.size())
-		return waveZero;
-	return mWaveSky;
+	InitCUDA();
+	CUDASetResolution(mResolution.x, mResolution.y);
+	CUDASetTraceDepth(mMaxDepth);
+	float pos[3]{ mCamPos.x, mCamPos.y, mCamPos.z };
+	float dir[3]{ mCamDir.x, mCamDir.y, mCamDir.z };
+	float up[3]{ mCamUp.x, mCamUp.y, mCamUp.z };
+	CUDASetCamera(pos, dir, up);
+	CUDASetProjection(mCamFocal, mCamFovy);
 }
 
-void PathTracer::RenderFrame()
+void PathTracer::BuildGPUScene()
 {
-	mExit = false;
+	for (auto& t : mTriangles)
+	{
+		t.material = mLoadedObjects[t.objectId].elements[t.elementId].material;
+		t.material.emissivity = GetEmissivity(t.material.spectrumMatId, t.material.temperature);
+		t.spectrumMatEmiss = mSpectrumMaterials[t.material.spectrumMatId].emissivity;
+	}
 
+	BuildBVH();
+	std::vector<GPUBVHNode> bvh;
+	mBvh->GetGPULayout(bvh);
+	CUDASetBVH(bvh.data(), bvh.size());
+
+	CUDALoadTextures(mLoadedTextures);
+
+	CUDASetWavelength(mWavelength);
+	CUDASetSky(mWaveSky);
+}
+
+void PathTracer::CUDARender(float* img)
+{
 	if (mNeedReset)
 	{
-		for (int i = 0; i < mResolution.x * mResolution.y; i++)
-			mTotalSpectrumResult[i].Initialize(mWaveLengths.size());
-
-		for (int i = 0; i < mResolution.x * mResolution.y * 3; i++)
-			mTotalImg[i] = 0.0f;
 		mNeedReset = false;
-        mSamples = 0;
+		mSamples = 0;
 	}
 
 	mSamples++;
 
-	// Position world space image plane
-	glm::vec3 imgCenter = mCamPos + mCamDir * mCamFocal;
-	float imgHeight = 2.0f * mCamFocal * tan((mCamFovy / 2.0f) * M_PI / 180.0f);
-	float aspect = (float)mResolution.x / (float)mResolution.y;
-	float imgWidth = imgHeight * aspect;
-	float deltaX = imgWidth / (float)mResolution.x;
-	float deltaY = imgHeight / (float)mResolution.y;
-	glm::vec3 camRight = glm::normalize(glm::cross(mCamUp, mCamDir));
+	CUDARenderFrame(mResolution.x, mResolution.y, img, mSamples);
+}
 
-	// Starting at top left
-	glm::vec3 topLeft = imgCenter - camRight * (imgWidth * 0.5f);
-	topLeft += mCamUp * (imgHeight * 0.5f);
+void PathTracer::RenderFrame()
+{
+	//mExit = false;
 
-	int numThreads = omp_get_max_threads();
-	if (numThreads > 2)
-		numThreads -= 3;
-	else if (numThreads > 1)
-		numThreads -= 2;
-	else if (numThreads > 0)
-		numThreads--;
-	// Loop through each pixel
-	#pragma omp parallel for num_threads(numThreads)
-	for (int i = 0; i < mResolution.y; i++)
-	{
-		if (mExit)
-			break;
+	//if (mNeedReset)
+	//{
+	//	for (int i = 0; i < mResolution.x * mResolution.y; i++)
+	//		mTotalSpectrumResult[i].Initialize(mWaveLengths.size());
 
-		glm::vec3 pixel = topLeft - mCamUp * ((float)i * deltaY);
-		for (int j = 0; j < mResolution.x; j++)
-		{
-			glm::vec3 rayDir = glm::normalize(pixel - mCamPos);
-			float seed = 0.0f;
+	//	for (int i = 0; i < mResolution.x * mResolution.y * 3; i++)
+	//		mTotalImg[i] = 0.0f;
+	//	mNeedReset = false;
+ //       mSamples = 0;
+	//}
 
-			Wave wave = Trace(mCamPos, rayDir);
+	//mSamples++;
 
-			int imgPixel = ((mResolution.y - 1 - i) * mResolution.x + j);
+	//// Position world space image plane
+	//glm::vec3 imgCenter = mCamPos + mCamDir * mCamFocal;
+	//float imgHeight = 2.0f * mCamFocal * tan((mCamFovy / 2.0f) * M_PI / 180.0f);
+	//float aspect = (float)mResolution.x / (float)mResolution.y;
+	//float imgWidth = imgHeight * aspect;
+	//float deltaX = imgWidth / (float)mResolution.x;
+	//float deltaY = imgHeight / (float)mResolution.y;
+	//glm::vec3 camRight = glm::normalize(glm::cross(mCamUp, mCamDir));
 
-			mTotalSpectrumResult[imgPixel] += wave;
-			mOutSpectrumResult[imgPixel] = mTotalSpectrumResult[imgPixel] / (float)mSamples;
+	//// Starting at top left
+	//glm::vec3 topLeft = imgCenter - camRight * (imgWidth * 0.5f);
+	//topLeft += mCamUp * (imgHeight * 0.5f);
 
-			/*if (mOutputChannel >= 0 && mOutputChannel < mNumWaves)
-			{
-				mOutImg[imgPixel * 3] = mOutSpectrumResult[imgPixel][mOutputChannel] * 255;
-				mOutImg[imgPixel * 3 + 1] = mOutSpectrumResult[imgPixel][mOutputChannel] * 255;
-				mOutImg[imgPixel * 3 + 2] = mOutSpectrumResult[imgPixel][mOutputChannel] * 255;
-			}*/
+	//int numThreads = omp_get_max_threads();
+	//if (numThreads > 2)
+	//	numThreads -= 3;
+	//else if (numThreads > 1)
+	//	numThreads -= 2;
+	//else if (numThreads > 0)
+	//	numThreads--;
+	//// Loop through each pixel
+	//#pragma omp parallel for num_threads(numThreads)
+	//for (int i = 0; i < mResolution.y; i++)
+	//{
+	//	if (mExit)
+	//		break;
 
-			//glm::vec3 color = Trace(mCamPos, rayDir);
+	//	glm::vec3 pixel = topLeft - mCamUp * ((float)i * deltaY);
+	//	for (int j = 0; j < mResolution.x; j++)
+	//	{
+	//		glm::vec3 rayDir = glm::normalize(pixel - mCamPos);
+	//		float seed = 0.0f;
 
-			//// Draw
-			//int imgPixel = ((mResolution.y - 1 - i) * mResolution.x + j) * 3;
+	//		Wave wave = Trace(mCamPos, rayDir);
 
-			//mTotalImg[imgPixel] += color.r;
-			//mTotalImg[imgPixel + 1] += color.g;
-			//mTotalImg[imgPixel + 2] += color.b;
+	//		int imgPixel = ((mResolution.y - 1 - i) * mResolution.x + j);
 
-			//glm::vec3 res = glm::vec3
-			//(
-			//	mTotalImg[imgPixel] / (float)mSamples,
-			//	mTotalImg[imgPixel + 1] / (float)mSamples,
-			//	mTotalImg[imgPixel + 2] / (float)mSamples
-			//);
+	//		mTotalSpectrumResult[imgPixel] += wave;
+	//		mOutSpectrumResult[imgPixel] = mTotalSpectrumResult[imgPixel] / (float)mSamples;
 
-			//res = glm::clamp(res, glm::vec3(0.0f), glm::vec3(1.0f));
-
-			//mOutImg[imgPixel] = res.r * 255;
-			//mOutImg[imgPixel + 1] = res.g * 255;
-			//mOutImg[imgPixel + 2] = res.b * 255;
-
-			pixel += camRight * deltaX;
-		}
-	}
+	//		pixel += camRight * deltaX;
+	//	}
+	//}
 }
 
 void PathTracer::Exit()

@@ -31,23 +31,13 @@ const std::string fQuad =
 	"#version 410\n"
 
 	"uniform sampler2D tex;\n"
-	"uniform int channel = 0;\n"
 
 	"in vec2 tex_coord;\n"
 	"out vec4 fragcolor;\n"
 
 	"void main()\n"
 	"{\n"
-	"	vec4 res = texelFetch(tex, ivec2(gl_FragCoord), 0);\n"
 	"	fragcolor = texelFetch(tex, ivec2(gl_FragCoord), 0);\n"
-	"	if (channel == 0)\n"
-	"		fragcolor = res;\n"
-	"	else if (channel == 1)\n"
-	"		fragcolor = vec4(res.rrr, 1.0);\n"
-	"	else if (channel == 2)\n"
-	"		fragcolor = vec4(res.ggg, 1.0);\n"
-	"	else if (channel == 3)\n"
-	"		fragcolor = vec4(res.bbb, 1.0);\n"
 	"}\n"
 };
 

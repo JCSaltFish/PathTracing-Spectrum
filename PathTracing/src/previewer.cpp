@@ -694,7 +694,7 @@ void Previewer::SendObjectsToPathTracer(PathTracer* pPathTracer)
             }
         }
     }
-    pPathTracer->BuildBVH();
+    //pPathTracer->BuildBVH();
 }
 
 void Previewer::SetCamera(const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& up)

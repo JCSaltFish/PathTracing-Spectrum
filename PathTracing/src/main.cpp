@@ -17,6 +17,9 @@
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+
+#include <cuda_gl_interop.h>
+
 #include <omp.h>
 
 #include <glm/glm.hpp>
@@ -44,6 +47,8 @@
 #include "previewer.h"
 #include "pathutil.h"
 
+#include "cudakernel.cuh"
+
 /* ----- GLFW/IMGUI PARAMS ------ */
 GLFWwindow* window;
 const GLint leftBarWidth = 333;
@@ -67,14 +72,18 @@ GLuint rbo = -1;
 GLuint frameTex = -1;
 GLuint fboTex = -1;
 GLuint pickTex = -1;
-GLubyte* texData = 0;
+//GLubyte* texData = 0;
+
+float* gpuTexData = 0;
+GLuint pbo = -1;
+cudaGraphicsResource_t pboCuda;
 
 ImFont* bigIconFont = 0;
 ImFont* normalIconFont = 0;
 /* ----- GLFW/IMGUI PARAMS ------ */
 
 /* ----- PATHTRACER/PREVIEWER PARAMS ------ */
-const std::string version = "Spectrum 1.2.0";
+const std::string version = "Spectrum CUDA 1.2.0";
 
 PathTracer pathTracer;
 int traceDepth = 3;
@@ -97,6 +106,8 @@ bool canStart = true;
 bool canPause = false;
 bool canStop = false;
 bool canRestart = false;
+
+bool canDraw = false;
 
 bool saveFile = false;
 bool exportFile = false;
@@ -153,8 +164,8 @@ int selectAllCmd = -1;
 bool showSettingsWindow = false;
 bool showAboutWindow = false;
 
-int channel = -1;
-int editingWaveId = -1;
+//int channel = -1;
+//int editingWaveId = -1;
 bool selectMaterial = false;
 int lastSelectedMatId = -1;
 int pickedObjId = -1;
@@ -172,13 +183,13 @@ bool needsRedirObjects = false;
 /* ----- PATHTRACER/PREVIEWER PARAMS ------ */
 
 /* ----- SPECTRUM PARAMS & FUNCTIONS ------ */
-std::vector<float> waveLengths;
+float waveLength = 0.0f;
 std::vector<SpectrumMaterial> materials;
 
 int skyMaterialId = -1;
 float skyTemperature = 0.0f;
 
-Wave* spectrumResult = 0;
+//float* spectrumResult = 0;
 
 void DeleteSelectedMaterials()
 {
@@ -212,59 +223,6 @@ void DeleteSelectedMaterials()
 			i--;
 		}
 	}
-}
-
-void LoadSpectrumWaves()
-{
-	const char* filterItems[1] = { "*.txt" };
-	const char* filterDesc = "Text Documents (*.txt)";
-	auto txtPath_c = tinyfd_openFileDialog("Import Waves",
-		pwd_r.c_str(), 1, filterItems, filterDesc, 0);
-	if (!txtPath_c)
-		return;
-
-	std::string txtPath = PathUtil::UniversalPath(txtPath_c);
-	pwd_r = txtPath.substr(0, txtPath.find_last_of('/'));
-	
-	if (waveLengths.size() > 0)
-	{
-		for (int i = 0; i < materials.size(); i++)
-		{
-			materials[i].emissivity.swap(std::vector<float>());
-			materials[i].editingWaveId = -1;
-		}
-		waveLengths.swap(std::vector<float>());
-		editingWaveId = -1;
-		sceneModified = true;
-	}
-
-	std::ifstream fr(txtPath, std::ofstream::in);
-
-	while (!fr.eof())
-	{
-		std::string str;
-		fr >> str;
-		float wave = 0.0f;
-		try
-		{
-			wave = std::stof(str);
-		}
-		catch (const std::exception& e)
-		{
-			break;
-		}
-
-		waveLengths.push_back(wave);
-		for (int i = 0; i < materials.size(); i++)
-			materials[i].emissivity.push_back(0.0f);
-	}
-
-	fr.close();
-
-	sceneModified = true;
-
-	statusText = "Imported waves: " + txtPath;
-	statusShowBegin = std::chrono::steady_clock::now();
 }
 
 void LoadSpectrumMaterials()
@@ -319,12 +277,9 @@ void LoadSpectrumMaterials()
 
 		if (!std::getline(fr, line)) break;
 		std::stringstream ss(line);
-		for (int i = 0; i < waveLengths.size(); i++)
-		{
-			float emiss;
-			ss >> emiss;
-			m.emissivity.push_back(emiss);
-		}
+		float emiss;
+		ss >> emiss;
+		m.emissivity = emiss;
 
 		materials.push_back(m);
 	}
@@ -341,15 +296,13 @@ void LoadSpectrumMaterials()
 /* ----- TOOL FUNCTIONS ------ */
 void ClearScene()
 {
-	waveLengths.swap(std::vector<float>());
+	waveLength = 0.0f;
 	materials.swap(std::vector<SpectrumMaterial>());
 	previewer.ClearScene();
 
 	preview = true;
 	lastSelectedId = -1;
 
-	channel = -1;
-	editingWaveId = -1;
 	selectMaterial = false;
 	lastSelectedMatId = -1;
 
@@ -399,12 +352,9 @@ void GetResolutionFromSceneFile(const std::string& file)
 
 	fr >> ival;
 	if (fr.eof()) { fr.close(); return; }
-	for (int i = 0; i < ival; i++)
-	{
-		fr >> val;
-		if (fr.eof()) { fr.close(); return; }
-		waveLengths.push_back(val);
-	}
+	fr >> val;
+	if (fr.eof()) { fr.close(); return; }
+	waveLength = val;
 
 	fr >> ival;
 	if (fr.eof()) { fr.close(); return; }
@@ -413,11 +363,8 @@ void GetResolutionFromSceneFile(const std::string& file)
 		if (!std::getline(fr, line)) { fr.close(); return; }
 		if (!std::getline(fr, line)) { fr.close(); return; }
 
-		for (int j = 0; j < waveLengths.size(); j++)
-		{
-			fr >> val;
-			if (fr.eof()) { fr.close(); return; }
-		}
+		fr >> val;
+		if (fr.eof()) { fr.close(); return; }
 	}
 
 	fr >> ival;
@@ -458,12 +405,9 @@ void LoadScene(const std::string& file)
 
 	fr >> ival;
 	if (fr.eof()) { fr.close(); return; }
-	for (int i = 0; i < ival; i++)
-	{
-		fr >> val;
-		if (fr.eof()) { fr.close(); return; }
-		waveLengths.push_back(val);
-	}
+	fr >> val;
+	if (fr.eof()) { fr.close(); return; }
+	waveLength = val;
 
 	fr >> ival;
 	if (fr.eof()) { fr.close(); return; }
@@ -475,12 +419,9 @@ void LoadScene(const std::string& file)
 		if (!std::getline(fr, line)) { fr.close(); return; }
 		m.name = line;
 
-		for (int j = 0; j < waveLengths.size(); j++)
-		{
-			fr >> val;
-			if (fr.eof()) { fr.close(); return; }
-			m.emissivity.push_back(val);
-		}
+		fr >> val;
+		if (fr.eof()) { fr.close(); return; }
+		m.emissivity = val;
 
 		materials.push_back(m);
 	}
@@ -642,12 +583,9 @@ void LoadObjectPathsFromSceneFile(const std::string& file)
 
 	fr >> ival;
 	if (fr.eof()) { fr.close(); return; }
-	for (int i = 0; i < ival; i++)
-	{
-		fr >> val;
-		if (fr.eof()) { fr.close(); return; }
-		waveLengths.push_back(val);
-	}
+	fr >> val;
+	if (fr.eof()) { fr.close(); return; }
+	waveLength = val;
 
 	fr >> ival;
 	if (fr.eof()) { fr.close(); return; }
@@ -656,11 +594,8 @@ void LoadObjectPathsFromSceneFile(const std::string& file)
 		if (!std::getline(fr, line)) { fr.close(); return; }
 		if (!std::getline(fr, line)) { fr.close(); return; }
 
-		for (int j = 0; j < waveLengths.size(); j++)
-		{
-			fr >> val;
-			if (fr.eof()) { fr.close(); return; }
-		}
+		fr >> val;
+		if (fr.eof()) { fr.close(); return; }
 	}
 
 	fr >> ival;
@@ -832,17 +767,15 @@ void SaveAt(const std::string& path)
 
 	fw << "Path Tracer Scene File\n" << "Version=" << version << "\n";
 
-	fw << waveLengths.size() << "\n";
-	for (int i = 0; i < waveLengths.size(); i++)
-		fw << waveLengths[i] << " ";
+	fw << 1 << "\n";
+	fw << waveLength << " ";
 	fw << "\n";
 
 	fw << materials.size() << "\n";
 	for (int i = 0; i < materials.size(); i++)
 	{
 		fw << materials[i].name << "\n";
-		for (int j = 0; j < waveLengths.size(); j++)
-			fw << materials[i].emissivity[j] << " ";
+		fw << materials[i].emissivity << " ";
 		fw << "\n";
 	}
 
@@ -957,26 +890,28 @@ void ExportAt(const std::string& path)
     //GLuint channel = 3; // rgb
     //stbi_write_png(filePath.c_str(), wRender, hRender, channel, texData, channel * wRender);
 
+	float* h_data = new float[wRender * hRender * 3];
+	gpuErrchk(cudaMemcpy(h_data, gpuTexData, wRender * hRender * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+
     std::ofstream fw(path, std::ofstream::out);
 
-	for (int k = 0; k < waveLengths.size(); k++)
+	for (int i = hRender - 1; i >= 0; i--)
 	{
-		for (int i = hRender - 1; i >= 0; i--)
+		for (int j = 0; j < wRender; j++)
 		{
-			for (int j = 0; j < wRender; j++)
-			{
-				if (glfwWindowShouldClose(window))
-					break;
-				float value = spectrumResult[i * wRender + j][k];
-				if (isnan(value))
-					value = 0.0f;
-				fw << value << " ";
-			}
-			fw << "\n";
+			if (glfwWindowShouldClose(window))
+				break;
+			float value = h_data[(i * wRender + j) * 3];
+			if (isnan(value))
+				value = 0.0f;
+			fw << value << " ";
 		}
+		fw << "\n";
 	}
 
     fw.close();
+
+	delete[] h_data;
 
 	statusText = "Exported file at: " + path;
 	statusShowBegin = std::chrono::steady_clock::now();
@@ -2215,9 +2150,6 @@ void GuiRightBar()
 
 void GuiLeftBar()
 {
-	if (waveLengths.size() != 0 && editingWaveId == -1)
-		editingWaveId = 0;
-
 	ImGui::SetNextWindowPos(ImVec2(0, menuHeight + toolbarHeight));
 	ImGui::SetNextWindowSize(ImVec2(leftBarWidth, hWindow - menuHeight - toolbarHeight - statusBarHeight));
 	ImGui::Begin("Spectrum Data", 0,
@@ -2228,147 +2160,17 @@ void GuiLeftBar()
 		ImGuiWindowFlags_NoBringToFrontOnFocus);
 
 	ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-	if (ImGui::TreeNodeEx("Output Display", ImGuiTreeNodeFlags_SpanAvailWidth))
-	{
-		if (init || stop)
-			ImGui::BeginDisabled();
-
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
-			(ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
-		ImGui::Text("Wave Channel");
-		ImGui::SameLine(130);
-		ImGui::SetNextItemWidth(150);
-		std::string strChannel = std::to_string(channel);
-		if (channel == -1)
-			strChannel = "";
-		if (ImGui::BeginCombo("##channel", strChannel.c_str()))
-		{
-			for (int i = 0; i < waveLengths.size(); i++)
-			{
-				const bool is_selected = (channel == i);
-				if (ImGui::Selectable(std::to_string(i).c_str(), is_selected))
-				{
-					channel = i;
-					preview = false;
-				}
-				if (is_selected)
-					ImGui::SetItemDefaultFocus();
-			}
-			ImGui::EndCombo();
-		}
-
-		if (init || stop)
-			ImGui::EndDisabled();
-		ImGui::TreePop();
-	}
-
-	ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-	if (ImGui::TreeNodeEx("Waves", ImGuiTreeNodeFlags_SpanAvailWidth))
+	if (ImGui::TreeNodeEx("Wave Input", ImGuiTreeNodeFlags_SpanAvailWidth))
 	{
 		if (!(init || stop) || render)
 			ImGui::BeginDisabled();
 
-		int posY = ImGui::GetCursorPosY();
-		ImGui::SetCursorPosY(posY + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
-		if (waveLengths.size() < 2)
-			ImGui::Text("%i wave", waveLengths.size());
-		else
-			ImGui::Text("%i waves", waveLengths.size());
-
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.13f, 0.13f, 1.0f));
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.4f, 0.4f, 1.0f));
-
-		ImGui::SameLine(ImGui::GetContentRegionMax().x - 192.5f - ImGui::GetStyle().WindowPadding.x);
-		ImGui::SetCursorPosY(posY);
-		ImGui::PushFont(normalIconFont);
-		if (ImGui::Button(ICON_FK_TRASH "##delete_waves", ImVec2(25, 25)))
-		{
-			if (waveLengths.size() > 0)
-			{
-				for (int i = 0; i < materials.size(); i++)
-				{
-					materials[i].emissivity.swap(std::vector<float>());
-					materials[i].editingWaveId = -1;
-				}
-				waveLengths.swap(std::vector<float>());
-				editingWaveId = -1;
-				sceneModified = true;
-			}
-		}
-		ImGui::PopFont();
-
-		ImGui::SameLine(ImGui::GetContentRegionMax().x - 165.0f - ImGui::GetStyle().WindowPadding.x);
-		if (ImGui::Button(ICON_FK_SIGN_IN "   Import##wave", ImVec2(80, 25)))
-			LoadSpectrumWaves();
-
-		ImGui::PopStyleColor();
-		ImGui::PopStyleColor();
-		ImGui::PopStyleColor();
-		ImGui::PopStyleVar();
-
-		ImGui::SameLine(ImGui::GetContentRegionMax().x - 80.0f - ImGui::GetStyle().WindowPadding.x);
-		if (ImGui::IconButton(ICON_FK_PLUS, "  Add##wave", ImVec4(0.4f, 0.8f, 0.4f, 1.0f), ImVec2(70, 25)))
-		{
-			waveLengths.push_back(0.0f);
-			for (int i = 0; i < materials.size(); i++)
-				materials[i].emissivity.push_back(0.0f);
-			editingWaveId = waveLengths.size() - 1;
+		ImGui::Text("Wavelength (1/cm)");
+		ImGui::SameLine(130);
+		ImGui::SetNextItemWidth(150);
+		if (ImGui::InputFloat("##wavelength", &waveLength, 0.0f, 0.0f, "%.7f"))
 			sceneModified = true;
-		}
-
-		if (waveLengths.size() > 0)
-		{
-			if (editingWaveId == -1)
-				editingWaveId = 0;
-
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
-				(ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
-			ImGui::Text("Index");
-			ImGui::SameLine(130);
-			ImGui::SetNextItemWidth(150);
-			if (ImGui::BeginCombo("##waveId", std::to_string(editingWaveId).c_str()))
-			{
-				for (int i = 0; i < waveLengths.size(); i++)
-				{
-					const bool is_selected = (editingWaveId == i);
-					if (ImGui::Selectable(std::to_string(i).c_str(), is_selected))
-						editingWaveId = i;
-					if (is_selected)
-						ImGui::SetItemDefaultFocus();
-				}
-				ImGui::EndCombo();
-			}
-
-			ImGui::SameLine();
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.13f, 0.13f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.4f, 0.4f, 1.0f));
-			ImGui::PushFont(normalIconFont);
-			if (ImGui::SmallButton(ICON_FK_TRASH "##wave"))
-			{
-				for (int i = 0; i < materials.size(); i++)
-					materials[i].emissivity.erase(materials[i].emissivity.begin() + editingWaveId);
-				waveLengths.erase(waveLengths.begin() + editingWaveId);
-				if (editingWaveId >= waveLengths.size())
-					editingWaveId = waveLengths.size() - 1;
-				sceneModified = true;
-			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor();
-			ImGui::PopStyleColor();
-			ImGui::PopStyleColor();
-			ImGui::PopStyleVar();
-
-			ImGui::Text("Wavelength (1/cm)");
-			ImGui::SameLine(130);
-			ImGui::SetNextItemWidth(150);
-			if (ImGui::InputFloat("##wavelength", &waveLengths[editingWaveId], 0.0f, 0.0f, "%.7f"))
-				sceneModified = true;
-			GuiInputContextMenu();
-		}
+		GuiInputContextMenu();
 
 		if (!(init || stop) || render)
 			ImGui::EndDisabled();
@@ -2408,8 +2210,7 @@ void GuiLeftBar()
 		{
 			SpectrumMaterial m;
 			m.name = "Material " + std::to_string(materials.size());
-			for (int i = 0; i < waveLengths.size(); i++)
-				m.emissivity.push_back(0.0f);
+			m.emissivity = 0.0f;
 			materials.push_back(m);
 			sceneModified = true;
 		}
@@ -2481,42 +2282,15 @@ void GuiLeftBar()
 					sceneModified = true;
 				GuiInputContextMenu();
 
-				if (waveLengths.size() > 0)
-				{
-					ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
-						(ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
-					ImGui::Text("Wave Index");
-					ImGui::SameLine(130);
-					ImGui::SetNextItemWidth(150);
-					idStr = "##mat_waveId" + std::to_string(i);
-					if (materials[i].editingWaveId == -1)
-						materials[i].editingWaveId = 0;
-					else if (materials[i].editingWaveId >= waveLengths.size())
-						materials[i].editingWaveId = waveLengths.size() - 1;
-					if (ImGui::BeginCombo(idStr.c_str(),
-						std::to_string(materials[i].editingWaveId).c_str()))
-					{
-						for (int j = 0; j < waveLengths.size(); j++)
-						{
-							const bool is_selected = (materials[i].editingWaveId == j);
-							if (ImGui::Selectable(std::to_string(j).c_str(), is_selected))
-								materials[i].editingWaveId = j;
-							if (is_selected)
-								ImGui::SetItemDefaultFocus();
-						}
-						ImGui::EndCombo();
-					}
-
-					ImGui::Text("Emissivity");
-					ImGui::SameLine(130);
-					ImGui::SetNextItemWidth(150);
-					idStr = "##mat_emiss" + std::to_string(i);
-					if (ImGui::InputFloat(idStr.c_str(),
-						&materials[i].emissivity[materials[i].editingWaveId],
-						0.0f, 0.0f, "%.7f"))
-						sceneModified = true;
-					GuiInputContextMenu();
-				}
+				ImGui::Text("Emissivity");
+				ImGui::SameLine(130);
+				ImGui::SetNextItemWidth(150);
+				idStr = "##mat_emiss" + std::to_string(i);
+				if (ImGui::InputFloat(idStr.c_str(),
+					&materials[i].emissivity,
+					0.0f, 0.0f, "%.7f"))
+					sceneModified = true;
+				GuiInputContextMenu();
 
 				ImGui::TreePop();
 			}
@@ -3271,19 +3045,33 @@ void Display()
 				}
 			}
 		}
+		canDraw = false;
 	}
-	else
+	else if (canDraw)
 	{
+		gpuErrchk(cudaGraphicsUnmapResources(1, &pboCuda));
+
 		glDrawBuffer(GL_COLOR_ATTACHMENT0);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glUseProgram(quadShader);
+
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, frameTex);
+
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, wRender, hRender, GL_RGB, GL_FLOAT, NULL);
+
 		int fbo_tex_loc = glGetUniformLocation(quadShader, "tex");
 		glUniform1i(fbo_tex_loc, 0);
 		glBindVertexArray(quadVao);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // draw quad
+
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+		gpuErrchk(cudaGraphicsMapResources(1, &pboCuda));
+		canDraw = false;
 	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -3295,14 +3083,6 @@ void Display()
 
 void Idle()
 {
-	if (waveLengths.size() != 0 && channel == -1)
-		channel = 0;
-	if (channel >= waveLengths.size())
-		channel = waveLengths.size() - 1;
-	if (waveLengths.size() != 0 && editingWaveId == -1)
-		editingWaveId = 0;
-	if (editingWaveId >= waveLengths.size())
-		editingWaveId = waveLengths.size() - 1;
 	if (skyMaterialId >= materials.size())
 		skyMaterialId = -1;
 
@@ -3349,26 +3129,24 @@ void Idle()
 
 	// Only refresh result image on rendering
 	//if (((init || stop || isPausing) && !render) || preview)
-	if (init || stop || preview)
+	/*if (init || stop || preview)
 		return;
 
-	if (channel == -1)
-		return;
 	for (int i = 0; i < hRender; i++)
 	{
 		for (int j = 0; j < wRender; j++)
 		{
 			int imgPixel = ((hRender - 1 - i) * wRender + j);
-			texData[imgPixel * 3] = spectrumResult[imgPixel][channel] * 255;
-			texData[imgPixel * 3 + 1] = spectrumResult[imgPixel][channel] * 255;
-			texData[imgPixel * 3 + 2] = spectrumResult[imgPixel][channel] * 255;
+			texData[imgPixel * 3] = spectrumResult[imgPixel] * 255;
+			texData[imgPixel * 3 + 1] = spectrumResult[imgPixel] * 255;
+			texData[imgPixel * 3 + 2] = spectrumResult[imgPixel] * 255;
 		}
 	}
 
 	glBindTexture(GL_TEXTURE_2D, frameTex);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, wRender, hRender, GL_RGB, GL_UNSIGNED_BYTE, texData);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);*/
 }
 
 void Reshape(GLFWwindow* window, int w, int h)
@@ -3709,7 +3487,7 @@ int InitializeGL(GLFWwindow*& window)
 	
 	wWindow = wRender + leftBarWidth + rightBarWidth;
 	hWindow = hRender + menuHeight + toolbarHeight + statusBarHeight;
-	window = glfwCreateWindow(wWindow, hWindow, "PathTracer - Spectrum", NULL, NULL);
+	window = glfwCreateWindow(wWindow, hWindow, "PathTracer - Spectrum CUDA", NULL, NULL);
 	if (!window)
 	{
 		glfwTerminate();
@@ -3789,26 +3567,30 @@ void InitializeFrame()
 	if (quadVao == -1)
 		glGenVertexArrays(1, &quadVao);
 
+	if (pbo == -1)
+		glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, wRender * hRender * sizeof(float) * 3, 0, GL_DYNAMIC_COPY);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
 	if (frameTex == -1)
-	glGenTextures(1, &frameTex);
+		glGenTextures(1, &frameTex);
 	glBindTexture(GL_TEXTURE_2D, frameTex);
-	if (texData)
+	/*if (texData)
 		delete[] texData;
 	texData = new GLubyte[wRender * hRender * 3];
 	for (int i = 0; i < wRender * hRender * 3; i++)
-		texData[i] = 0;
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, wRender, hRender, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+		texData[i] = 0;*/
+	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, wRender, hRender, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, wRender, hRender, 0, GL_RGB, GL_FLOAT, NULL);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	if (spectrumResult)
-		delete[] spectrumResult;
-	spectrumResult = new Wave[wRender * hRender];
-	for (int i = 0; i < wRender * hRender; i++)
-		spectrumResult[i].Initialize(waveLengths.size());
+	gpuErrchk(cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone));
+	gpuErrchk(cudaGraphicsMapResources(1, &pboCuda));
 }
 
 void InitializeGLFrame()
@@ -3933,22 +3715,35 @@ void PathTracerLoop()
 
 				restart = false;
 				stop = false;
-				pathTracer.SetWaveLengths(waveLengths);
+				pathTracer.SetWaveLength(waveLength);
 				pathTracer.SetSpectrumMaterials(materials);
 				pathTracer.SetResolution(glm::ivec2(wRender, hRender));
 				pathTracer.SetTraceDepth(traceDepth);
-				pathTracer.SetOutImage(texData);
-				pathTracer.SetOutSpectrumResult(spectrumResult);
+				//pathTracer.SetOutImage(texData);
+				//pathTracer.SetOutSpectrumResult(spectrumResult);
 				pathTracer.InitializeSpectrumMaterials();
 				pathTracer.SetSky(skyMaterialId, skyTemperature);
 				pathTracer.ResetImage();
+
+				pathTracer.CUDAInit();
+				pathTracer.BuildGPUScene();
 
 				glfwSetTime(0.0); // reset counter
 
 				init = false;
 			}
-			pathTracer.RenderFrame();
+			//pathTracer.RenderFrame();
+			if (!canDraw)
+			{
+				size_t numBytes = wRender * hRender * sizeof(float) * 3;
+				gpuErrchk(cudaGraphicsResourceGetMappedPointer((void**)&gpuTexData, &numBytes, pboCuda));
+				pathTracer.CUDARender(gpuTexData);
+
+				canDraw = true;
+			}
 		}
+		else
+			canDraw = true;
 		if (pause)
 		{
 			timePause = glfwGetTime();
@@ -3982,8 +3777,8 @@ void PathTracerLoop()
 
 void OnExit()
 {
-	if (texData)
-		delete[] texData;
+	//if (texData)
+		//delete[] texData;
 
 	if (quadVao != -1)
 		glDeleteVertexArrays(1, &quadVao);
@@ -4000,8 +3795,12 @@ void OnExit()
 	if (appIconTex != -1)
 		glDeleteTextures(1, &appIconTex);
 
-	if (spectrumResult)
-		delete[] spectrumResult;
+	//if (spectrumResult)
+		//delete[] spectrumResult;
+
+	if (pbo != -1)
+		glDeleteBuffers(1, &pbo);
+	CUDAFinish();
 }
 /* ----- PROGRAM FUNCTIONS ------ */
 
@@ -4021,7 +3820,7 @@ int main(int argc, char** argv)
 	InitializeGLFrame();
 	InitializeFrame();
 
-	omp_set_nested(1);
+	//omp_set_nested(1);
 	#pragma omp parallel sections num_threads(2)
 	{
 		#pragma omp section
