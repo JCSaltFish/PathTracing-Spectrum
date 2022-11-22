@@ -59,6 +59,8 @@ void CUDASetResolution(int x, int y)
 	gpuErrchk(cudaMemcpyToSymbol(resX, &x, sizeof(unsigned)));
 	gpuErrchk(cudaMemcpyToSymbol(resY, &y, sizeof(unsigned)));
 
+	if (state)
+		gpuErrchk(cudaFree(state));
 	curandState_t* d_randState;
 	gpuErrchk(cudaMalloc((void**)&d_randState, x * y * sizeof(curandState_t)));
 	gpuErrchk(cudaMemcpyToSymbol(state, &d_randState, sizeof(d_randState)));
@@ -461,5 +463,6 @@ void CUDAReset()
 
 void CUDAFinish()
 {
+	CUDAReset();
 	gpuErrchk(cudaFree(state));
 }
