@@ -35,6 +35,5 @@ void CUDASetSky(float sky);
 void CUDARenderFrame(int w, int h, float* img, int& h_samples);
 
 void CUDAReset();
-void CUDAFinish();
 
 #endif
