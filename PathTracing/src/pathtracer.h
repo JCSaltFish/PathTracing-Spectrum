@@ -19,6 +19,27 @@ enum class MaterialType
 	GLASS
 };
 
+//新加
+class TemperatureData
+{
+public:
+	TemperatureData(const std::string& file);
+	~TemperatureData() {}
+
+	float Read(const glm::vec2& uv)
+	{
+		if (uv.x > 1.0f || uv.x < 0.0f || uv.y > 1.0f || uv.y < 0.0f)
+			return 0.0f;
+		glm::ivec2 coord = glm::ivec2(mWidth * uv.x, mHeight * uv.y);
+		return mData[coord.y * mWidth + coord.x];
+	}
+
+private:
+	std::vector<float> mData;
+	int mWidth;
+	int mHeight;
+};
+
 struct Material
 {
 	MaterialType type = MaterialType::DIFFUSE;
@@ -28,10 +49,26 @@ struct Material
 
 	int normalTexId = -1;
 
-	/* ---- SPECTRUM PARAMS ---- */
-	int spectrumMatId = -1;
+	//新加
+
+	float ior = 1.0f;
+	int roughnessTexId = -1;
+
 	float temperature = 0.0f;
 	int temperatureTexId = -1;
+	TemperatureData* pTemperatureData = nullptr;
+
+	~Material()
+	{
+		if (pTemperatureData)
+			delete pTemperatureData;
+	}
+	//到这
+
+	/* ---- SPECTRUM PARAMS ---- */
+	int spectrumMatId = -1;
+	//float temperature = 0.0f;
+	//int temperatureTexId = -1;
 	Wave reflectivity;
 	Wave emissivity;
 };
@@ -124,7 +161,7 @@ public:
 private:
 	/* ----- SPECTRUM FUNCTIONS ----- */
 	const float BBP(float temperature, int waveId) const;
-	const Wave GetReflectivity(int materialId) const;
+	const Wave GetReflectivity(int materialId, float temperature) const;
 	const Wave GetEmissivity(int materialId, float temperature) const;
 	/* ----- SPECTRUM FUNCTIONS ----- */
 
@@ -136,6 +173,7 @@ private:
 public:
 	void LoadObject(const std::string& file, const glm::mat4& model);
 	void SetNormalTextureForElement(int objId, int elementId, const std::string& file);
+	void SetRoughnessTextureForElement(int objId, int elementId, const std::string& file);
 	void SetMaterial(int objId, int elementId, Material& material);
 	void BuildBVH();
 	void ResetImage();
@@ -157,6 +195,10 @@ public:
 	void SetSpectrumMaterials(const std::vector<SpectrumMaterial>& materials);
 	void SetSky(int materialId, float temperature);
 	void SetTemperatureTextureForElement(int objId, int elementId, const std::string& file);
+
+	//新加
+	void SetTemperatureDataForElement(int objId, int elementId, const std::string& file);
+
 	/* ----- SPECTRUM FUNCTIONS ----- */
 
 	void SetCamera(const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& up);

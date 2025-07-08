@@ -34,11 +34,16 @@ namespace PreviewerLoader
         int numTriangles;
         GLuint normalTexId;
         std::string normalTexFile;
+        GLuint roughnessTexId;
+        std::string roughnessTexFile;
         Material material;
         bool highlight;
 
         GLuint temperatureTexId;
         std::string temperatureTexFile;
+
+        //新加
+        std::string temperatureDataFile;
 
         Element(const std::string& name)
         {
@@ -47,10 +52,13 @@ namespace PreviewerLoader
             numTriangles = 0;
             normalTexId = -1;
             normalTexFile = "";
+            roughnessTexId = -1;
+            roughnessTexFile = "";
             highlight = false;
 
             temperatureTexId = -1;
             temperatureTexFile = "";
+            temperatureDataFile = "";//新加
         }
     };
 
@@ -202,6 +210,10 @@ public:
     void SetMaterial(int objId, int elementId, const Material& m);
 
     void SetTemperatureTextureForElement(int objId, int elementId, const std::string& file);
+    
+    //新加
+    void SetTemperatureDataForElement(int objId, int elementId, const std::string& file);
+    void SetRoughnessTextureForElement(int objId, int elementId, const std::string& file);
 
     void SetLocation(int objId, const glm::vec3& location);
     void SetRotation(int objId, const glm::vec3& rotation);

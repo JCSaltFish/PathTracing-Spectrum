@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 #include <sstream>
+#include <fstream>
 #include <math.h>
 
 #include <omp.h>
@@ -161,6 +162,19 @@ void PathTracer::SetNormalTextureForElement(int objId, int elementId, const std:
 	}
 }
 
+void PathTracer::SetRoughnessTextureForElement(int objId, int elementId, const std::string& file)
+{
+	Material& mat = mLoadedObjects[objId].elements[elementId].material;
+	if (mat.roughnessTexId != -1)
+		mLoadedTextures[mat.roughnessTexId]->Load(file);
+	else
+	{
+		Image* texture = new Image(file);
+		mat.roughnessTexId = mLoadedTextures.size();
+		mLoadedTextures.push_back(texture);
+	}
+}
+
 void PathTracer::SetTemperatureTextureForElement(int objId, int elementId, const std::string& file)
 {
 	Material& mat = mLoadedObjects[objId].elements[elementId].material;
@@ -173,6 +187,16 @@ void PathTracer::SetTemperatureTextureForElement(int objId, int elementId, const
 		mLoadedTextures.push_back(texture);
 	}
 }
+
+//新加
+void PathTracer::SetTemperatureDataForElement(int objId, int elementId, const std::string& file)
+{
+	Material& mat = mLoadedObjects[objId].elements[elementId].material;
+	if (mat.pTemperatureData)
+		delete mat.pTemperatureData;
+	mat.pTemperatureData = new TemperatureData(file);
+}
+
 
 void PathTracer::SetMaterial(int objId, int elementId, Material& material)
 {
@@ -261,7 +285,8 @@ void PathTracer::InitializeSpectrumMaterials()
 			}
 			else
 			{
-				elements.material.reflectivity = GetReflectivity(elements.material.spectrumMatId);
+				//elements.material.reflectivity = GetReflectivity(elements.material.spectrumMatId);
+				elements.material.reflectivity = GetReflectivity(elements.material.spectrumMatId,elements.material.temperature);
 				elements.material.emissivity = GetEmissivity(elements.material.spectrumMatId,
 					elements.material.temperature);
 			}
@@ -334,8 +359,8 @@ const int PathTracer::GetSamples() const
 
 const float PathTracer::BBP(float temperature, int waveId) const
 {
-	float c = 299792458.0f;
-	float k = 138064852e-31;
+	float c = 299792458.0;
+	float k = 1.0f * 138064852e-31;
 	float h = 2.0f * M_PI * 105457180e-42;
 
 	float v = mWaveLengths[waveId];
@@ -343,11 +368,12 @@ const float PathTracer::BBP(float temperature, int waveId) const
 	return 2e8 * (h * c * c * v * v * v) / (exp(100.0f * h * c * v / k / T) - 1.0f);
 }
 
-const Wave PathTracer::GetReflectivity(int materialId) const
+const Wave PathTracer::GetReflectivity(int materialId, float temperature) const
 {
 	Wave refl(mWaveLengths.size());
 	for (int i = 0; i < mWaveLengths.size(); i++)
-		refl[i] = 1.0f - mSpectrumMaterials[materialId].emissivity[i];
+		//refl[i] = 1.0f - mSpectrumMaterials[materialId].emissivity[i];
+		refl[i] = BBP(temperature + 273.15f, i) * (1.0f - mSpectrumMaterials[materialId].emissivity[i]);
 	return refl;
 }
 
@@ -422,6 +448,10 @@ const Wave PathTracer::Trace(const glm::vec3& ro, const glm::vec3& rd, int depth
 		}
 		p += n * EPS;
 
+		float roughness = mat.roughness;
+		if (mat.roughnessTexId != -1)
+			roughness = mLoadedTextures[mat.roughnessTexId]->tex2D(uv).r;
+
 		if (depth < mMaxDepth * 2)
 		{
 			depth++;
@@ -485,16 +515,21 @@ const Wave PathTracer::Trace(const glm::vec3& ro, const glm::vec3& rd, int depth
 
 			Wave emissivity = mat.emissivity;
 			Wave reflectivity = mat.reflectivity;
-			if (mat.temperatureTexId != -1)
+			float temperature = mat.temperature;
+			//if (mat.temperatureTexId != -1)
+			if (mat.pTemperatureData)
 			{
 				// TODO map temperature value here
-				float temperature = mLoadedTextures[mat.normalTexId]->tex2D(uv).r;
+				//float temperature = mLoadedTextures[mat.normalTexId]->tex2D(uv).r;
+				temperature = mat.pTemperatureData->Read(uv);//新加
 				emissivity = GetEmissivity(mat.spectrumMatId, temperature);
+				//新加
+				reflectivity = GetReflectivity(mat.spectrumMatId, temperature);//新加
 			}
-			if (emissivity.size() < mWaveLengths.size())
-				emissivity = waveZero;
-			if (reflectivity.size() < mWaveLengths.size())
-				reflectivity = waveZero;
+			if (mat.emissivity.size() < mWaveLengths.size())
+				mat.emissivity = waveZero;
+			if (mat.reflectivity.size() < mWaveLengths.size())
+				mat.reflectivity = waveZero;
 
 			return emissivity + Trace(p, reflectDir, depth, inside) * reflectivity;
 		}
@@ -599,4 +634,44 @@ void PathTracer::RenderFrame()
 void PathTracer::Exit()
 {
 	mExit = true;
+}
+
+
+//新加
+TemperatureData::TemperatureData(const std::string& file)
+{
+	std::ifstream inFile(file);
+	if (!inFile)
+		return;
+
+	std::string line;
+	mHeight = 0;
+	mWidth = 0;
+
+	std::vector<float> rowData;
+
+	while (std::getline(inFile, line))
+	{
+		std::istringstream iss(line);
+		float value;
+		int currentWidth = 0;
+
+		while (iss >> value)
+		{
+			rowData.push_back(value);
+			currentWidth++;
+		}
+
+		if (mHeight == 0)
+			mWidth = currentWidth;
+		else if (currentWidth != mWidth)
+			return;
+
+		mHeight++;
+	}
+
+	if (mWidth == 0 || mHeight == 0)
+		return;
+
+	mData = std::move(rowData);
 }

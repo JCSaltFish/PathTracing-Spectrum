@@ -1066,6 +1066,18 @@ std::string LoadImage()
 		return "";
 	return imgPath_c;
 }
+
+//加入读取txt文件：
+std::string LoadText()
+{
+	const char* filterItems[1] = { "*.txt" };
+	const char* filterDesc = "Text Files (*.txt)";
+	auto txtPath_c = tinyfd_openFileDialog("Load Text", pwd_r.c_str(), 1, filterItems, filterDesc, 0);
+	if (!txtPath_c)
+		return "";
+	return txtPath_c;
+}
+
 /* ----- TOOL FUNCTIONS ------ */
 
 void InitializeFrame();
@@ -2019,6 +2031,9 @@ void GuiRightBar()
 						float val = objs[i].elements[j].material.roughness;
 						if (objs[i].elements[j].material.type == MaterialType::GLOSSY)
 						{
+							GLuint texId = objs[i].elements[j].roughnessTexId;
+							if (texId != -1)
+								ImGui::BeginDisabled();
 							ImGui::Text("Roughness");
 							ImGui::SameLine(160);
 							ImGui::SetNextItemWidth(150);
@@ -2032,6 +2047,49 @@ void GuiRightBar()
 								sceneModified = true;
 							}
 							GuiInputContextMenu();
+							if (texId != -1)
+								ImGui::EndDisabled();
+
+							posY = ImGui::GetCursorPosY();
+							ImGui::SetCursorPosY(posY + (50 - ImGui::GetTextLineHeight()) * 0.5f);
+							ImGui::Text("Roughness Texture");
+
+							ImGui::SameLine(160);
+							ImGui::SetCursorPosY(posY);
+							ImGui::Image((void*)texId, ImVec2(50, 50));
+
+							ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+							ImGui::PushFont(normalIconFont);
+							ImGui::SameLine();
+							int posX = ImGui::GetCursorPosX();
+							ImGui::SetCursorPosY(posY);
+							idSubStr = "Load##roughnessmap" + idStr;
+							if (ImGui::Button(idSubStr.c_str(), ImVec2(65, 23)))
+							{
+								std::string imgPath = LoadImage();
+								if (imgPath.size() != 0)
+								{
+									previewer.SetRoughnessTextureForElement(i, j, imgPath);
+									preview = true;
+									sceneModified = true;
+								}
+							}
+
+							ImGui::SetCursorPosX(posX);
+							ImGui::SetCursorPosY(posY + 27);
+							if (texId == -1)
+								ImGui::BeginDisabled();
+							idSubStr = "Remove##roughnessmap" + idStr;
+							if (ImGui::Button(idSubStr.c_str(), ImVec2(65, 23)))
+							{
+								previewer.SetRoughnessTextureForElement(i, j, "");
+								preview = true;
+								sceneModified = true;
+							}
+							if (texId == -1)
+								ImGui::EndDisabled();
+							ImGui::PopFont();
+							ImGui::PopStyleVar();
 						}
 
 						posY = ImGui::GetCursorPosY();
@@ -2104,8 +2162,9 @@ void GuiRightBar()
 							ImGui::EndCombo();
 						}
 
-						texId = objs[i].elements[j].temperatureTexId;
-						if (texId != -1)
+						//texId = objs[i].elements[j].temperatureTexId;
+						std::string file = objs[i].elements[j].temperatureDataFile;
+						if (file != "")
 							ImGui::BeginDisabled();
 						val = objs[i].elements[j].material.temperature;
 						ImGui::Text("Temperature");
@@ -2121,10 +2180,33 @@ void GuiRightBar()
 							sceneModified = true;
 						}
 						GuiInputContextMenu();
-						if (texId != -1)
+						if (file != "")
 							ImGui::EndDisabled();
 
-						posY = ImGui::GetCursorPosY();
+						//引入非均匀分布
+						ImGui::Text("Temperature Map");
+						ImGui::SameLine(160);
+						ImGui::SetNextItemWidth(130);
+						idSubStr = "##temperatureMap" + idStr;
+						if (ImGui::InputText(idSubStr.c_str(), &file))
+						{
+							previewer.SetTemperatureDataForElement(i, j, file);
+							sceneModified = true;
+						}
+						GuiInputContextMenu();
+						ImGui::SameLine(295);
+						idSubStr = "Load##temperaturemap" + idStr;
+						if (ImGui::Button(idSubStr.c_str(), ImVec2(65, 23)))
+						{
+							std::string txtPath = LoadText();
+							if (txtPath.size() != 0)
+							{
+								previewer.SetTemperatureDataForElement(i, j, txtPath);
+								sceneModified = true;
+							}
+						}
+
+						/*posY = ImGui::GetCursorPosY();
 						ImGui::SetCursorPosY(posY + (50 - ImGui::GetTextLineHeight()) * 0.5f);
 						ImGui::Text("Temperature Map");
 
@@ -2161,7 +2243,7 @@ void GuiRightBar()
 						if (texId == -1)
 							ImGui::EndDisabled();
 						ImGui::PopFont();
-						ImGui::PopStyleVar();
+						ImGui::PopStyleVar();*/
 
 						ImGui::TreePop();
 					}
